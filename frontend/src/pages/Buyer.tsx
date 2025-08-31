@@ -1,23 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Trash2, Download, RefreshCw } from 'lucide-react';
+import { Users, Trash2, Download, RefreshCw, Send } from 'lucide-react';
 import { getWalletAddress, getOwnedTokens, retireCredit, isTokenRetired, handleChainError, waitForTransactionAndRefresh, listenForTransfers } from '../lib/chain';
 import { toast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { api } from '../lib/api';
 
 interface CreditToken {
   tokenId: number;
   isRetired: boolean;
 }
 
+interface Producer {
+  address: string;
+  name: string;
+  state: string;
+  city: string;
+  isVerified: boolean;
+  verifiedAt?: Date;
+  verifiedBy?: string;
+}
+
 const Buyer: React.FC = () => {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [credits, setCredits] = useState<CreditToken[]>([]);
+  const [producers, setProducers] = useState<Producer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRetiring, setIsRetiring] = useState<number | null>(null);
   
   // Retirement confirmation state
   const [confirmRetirement, setConfirmRetirement] = useState<number | null>(null);
+  
+  // Request form state
+  const [selectedProducer, setSelectedProducer] = useState<string>('');
+  const [requestAmount, setRequestAmount] = useState<number>(1);
+  const [isRequesting, setIsRequesting] = useState(false);
 
   useEffect(() => {
     loadWalletAndCredits();
@@ -41,13 +58,27 @@ const Buyer: React.FC = () => {
       setWalletAddress(address);
       
       if (address) {
-        await loadCredits(address);
+        await Promise.all([
+          loadCredits(address),
+          loadProducers(),
+        ]);
       }
     } catch (error) {
       console.error('Failed to load wallet and credits:', error);
       toast.error('Failed to connect to blockchain');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadProducers = async () => {
+    try {
+      const response = await api.get('/producers?verified=true');
+      if (response.data.success) {
+        setProducers(response.data.producers);
+      }
+    } catch (error) {
+      console.error('Failed to load producers:', error);
     }
   };
 
@@ -124,8 +155,41 @@ const Buyer: React.FC = () => {
 
   const handleRefresh = () => {
     if (walletAddress) {
-      loadCredits(walletAddress);
-      toast.info('Refreshing credits...');
+      Promise.all([
+        loadCredits(walletAddress),
+        loadProducers(),
+      ]);
+      toast.info('Refreshing data...');
+    }
+  };
+
+  const handleRequestCredits = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!walletAddress || !selectedProducer || !requestAmount) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    setIsRequesting(true);
+    
+    try {
+      const response = await api.post('/incoming-requests', {
+        fromAddress: walletAddress,
+        toAddress: selectedProducer,
+        amount: requestAmount,
+      });
+      
+      if (response.data.success) {
+        toast.success('Credit request sent successfully');
+        setSelectedProducer('');
+        setRequestAmount(1);
+      }
+    } catch (error) {
+      console.error('Failed to request credits:', error);
+      toast.error('Failed to send credit request');
+    } finally {
+      setIsRequesting(false);
     }
   };
 
@@ -214,6 +278,105 @@ const Buyer: React.FC = () => {
               <p className="text-gray-400">Retired for Offset</p>
             </motion.div>
           </div>
+
+          {/* Producer List Section */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            className="card mb-8"
+          >
+            <h2 className="text-xl font-semibold mb-6 flex items-center">
+              <Users className="h-5 w-5 mr-2 text-brand" />
+              Request Credits from Producers
+            </h2>
+            
+            <form onSubmit={handleRequestCredits} className="space-y-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Select Producer
+                  </label>
+                  <select
+                    value={selectedProducer}
+                    onChange={(e) => setSelectedProducer(e.target.value)}
+                    className="input w-full"
+                    required
+                  >
+                    <option value="">Choose a producer...</option>
+                    {producers.map((producer) => (
+                      <option key={producer.address} value={producer.address}>
+                        {producer.name} - {producer.city}, {producer.state}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Number of Credits
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={requestAmount}
+                    onChange={(e) => setRequestAmount(Number(e.target.value))}
+                    className="input w-full"
+                    required
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isRequesting || producers.length === 0}
+                className="btn-primary w-full flex items-center justify-center space-x-2"
+              >
+                {isRequesting ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    <span>Sending Request...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4" />
+                    <span>Request Credits</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+            <div className="border-t border-gray-700 pt-6">
+              <h3 className="text-lg font-semibold mb-4">Verified Producers</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {producers.length === 0 ? (
+                  <p className="text-gray-500 text-center col-span-full py-8">
+                    No verified producers available
+                  </p>
+                ) : (
+                  producers.map((producer) => (
+                    <div key={producer.address} className="bg-gray-800/50 rounded-xl p-4 border border-gray-600">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <div className="w-3 h-3 bg-green-500 rounded-full" />
+                        <h4 className="font-semibold">{producer.name}</h4>
+                      </div>
+                      <p className="text-sm text-gray-400 mb-1">
+                        {producer.city}, {producer.state}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {producer.address.slice(0, 6)}...{producer.address.slice(-4)}
+                      </p>
+                      {producer.verifiedAt && (
+                        <p className="text-xs text-green-400 mt-2">
+                          Verified: {new Date(producer.verifiedAt).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </motion.div>
 
           {/* Credits Management */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
