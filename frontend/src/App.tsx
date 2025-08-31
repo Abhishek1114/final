@@ -5,6 +5,7 @@ import NavBar from './components/NavBar';
 import { ToastContainer } from './components/Toast';
 import Home from './pages/Home';
 import Certifier from './pages/Certifier';
+import StateAdmin from './pages/StateAdmin';
 import Producer from './pages/Producer';
 import Buyer from './pages/Buyer';
 import Regulator from './pages/Regulator';
@@ -23,6 +24,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/certifier" element={<Certifier />} />
+          <Route path="/state-admin" element={<StateAdmin />} />
           <Route path="/producer" element={<Producer />} />
           <Route path="/buyer" element={<Buyer />} />
           <Route path="/regulator" element={<Regulator />} />

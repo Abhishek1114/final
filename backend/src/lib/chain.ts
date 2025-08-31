@@ -24,14 +24,15 @@ export async function getProvider() {
 export async function getContract() {
   if (!contract && config.contractAddress) {
     const providerInstance = await getProvider();
-    if (providerInstance) {
-      console.log('📋 Creating contract instance for:', config.contractAddress);
-      contract = new ethers.Contract(
-        config.contractAddress,
-        HydroCredTokenABI,
-        providerInstance
-      );
+    if (!providerInstance) {
+      throw new Error('Provider not available');
     }
+    console.log('📋 Creating contract instance for:', config.contractAddress);
+    contract = new ethers.Contract(
+      config.contractAddress,
+      HydroCredTokenABI,
+      providerInstance
+    );
   }
   return contract;
 }
