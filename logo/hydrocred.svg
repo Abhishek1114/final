@@ -1,0 +1,15 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer circle (open) -->
+  <path d="M 50 100 A 50 50 0 1 1 150 100" stroke="#0ABAB5" stroke-width="4" fill="none" stroke-linecap="round"/>
+  
+  <!-- H₂ text -->
+  <text x="100" y="105" text-anchor="middle" font-family="Inter, sans-serif" font-size="36" font-weight="600" fill="#0ABAB5">H₂</text>
+  
+  <!-- Circuit nodes forming subtle checkmark -->
+  <circle cx="125" cy="75" r="3" fill="#A1F2E3"/>
+  <circle cx="135" cy="110" r="3" fill="#A1F2E3"/>
+  <line x1="125" y1="75" x2="135" y2="110" stroke="#A1F2E3" stroke-width="2"/>
+  
+  <!-- Brand name -->
+  <text x="100" y="170" text-anchor="middle" font-family="Inter, sans-serif" font-size="18" font-weight="600" fill="#FFFFFF">HydroCred</text>
+</svg>

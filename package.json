@@ -1,0 +1,29 @@
+{
+  "name": "hydrocred",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HydroCred - Blockchain-based Green Hydrogen Credit System",
+  "workspaces": [
+    "blockchain",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "install:all": "npm -w blockchain i && npm -w backend i && npm -w frontend i",
+    "dev": "concurrently -k \"npm -w backend run dev\" \"npm -w frontend run dev\"",
+    "chain:compile": "npm -w blockchain run compile",
+    "chain:test": "npm -w blockchain run test",
+    "chain:deploy": "npm -w blockchain run deploy",
+    "update-contract-address": "node scripts/update-contract-address.js",
+    "test:connection": "node scripts/test-connection.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
