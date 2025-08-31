@@ -41,7 +41,8 @@ const NavBar: React.FC = () => {
 
   const navItems = [
     { path: '/', label: 'Home' },
-    { path: '/certifier', label: 'Certifier' },
+    { path: '/certifier', label: 'Main Admin' },
+    { path: '/state-admin', label: 'State Admin' },
     { path: '/producer', label: 'Producer' },
     { path: '/buyer', label: 'Buyer' },
     { path: '/regulator', label: 'Regulator' },
