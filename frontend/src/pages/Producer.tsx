@@ -1,24 +1,72 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Leaf, Send, RefreshCw } from 'lucide-react';
+import { Leaf, Send, RefreshCw, Plus, Users } from 'lucide-react';
 import { getWalletAddress, getOwnedTokens, transferCredit, isTokenRetired, handleChainError, waitForTransactionAndRefresh, listenForTransfers } from '../lib/chain';
 import { toast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { api } from '../lib/api';
 
 interface CreditToken {
   tokenId: number;
   isRetired: boolean;
 }
 
+interface CreditRequest {
+  id: string;
+  producerAddress: string;
+  amount: number;
+  state: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: Date;
+  updatedAt: Date;
+  approvedAt?: Date;
+  approvedBy?: string;
+  rejectedAt?: Date;
+  rejectedBy?: string;
+  reason?: string;
+}
+
+interface IncomingRequest {
+  id: string;
+  fromAddress: string;
+  toAddress: string;
+  amount: number;
+  status: 'pending' | 'accepted' | 'rejected';
+  createdAt: Date;
+  updatedAt: Date;
+  acceptedAt?: Date;
+  rejectedAt?: Date;
+  reason?: string;
+}
+
+interface Stats {
+  totalCredits: number;
+  activeCredits: number;
+  pendingRequests: number;
+  approvedRequests: number;
+}
+
 const Producer: React.FC = () => {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [credits, setCredits] = useState<CreditToken[]>([]);
+  const [creditRequests, setCreditRequests] = useState<CreditRequest[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<IncomingRequest[]>([]);
+  const [stats, setStats] = useState<Stats>({
+    totalCredits: 0,
+    activeCredits: 0,
+    pendingRequests: 0,
+    approvedRequests: 0,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isTransferring, setIsTransferring] = useState<number | null>(null);
   
   // Transfer form state
   const [selectedTokenId, setSelectedTokenId] = useState<number | null>(null);
   const [transferAddress, setTransferAddress] = useState('');
+  
+  // Request form state
+  const [requestAmount, setRequestAmount] = useState<number>(1);
+  const [isRequesting, setIsRequesting] = useState(false);
 
   useEffect(() => {
     loadWalletAndCredits();
@@ -42,7 +90,12 @@ const Producer: React.FC = () => {
       setWalletAddress(address);
       
       if (address) {
-        await loadCredits(address);
+        await Promise.all([
+          loadCredits(address),
+          loadCreditRequests(address),
+          loadIncomingRequests(address),
+          loadStats(address),
+        ]);
       }
     } catch (error) {
       console.error('Failed to load wallet and credits:', error);
@@ -70,6 +123,39 @@ const Producer: React.FC = () => {
     } catch (error) {
       console.error('Failed to load credits:', error);
       toast.error('Failed to load your credits');
+    }
+  };
+
+  const loadCreditRequests = async (address: string) => {
+    try {
+      const response = await api.get(`/credit-requests?producerAddress=${address}`);
+      if (response.data.success) {
+        setCreditRequests(response.data.requests);
+      }
+    } catch (error) {
+      console.error('Failed to load credit requests:', error);
+    }
+  };
+
+  const loadIncomingRequests = async (address: string) => {
+    try {
+      const response = await api.get(`/incoming-requests/${address}`);
+      if (response.data.success) {
+        setIncomingRequests(response.data.requests);
+      }
+    } catch (error) {
+      console.error('Failed to load incoming requests:', error);
+    }
+  };
+
+  const loadStats = async (address: string) => {
+    try {
+      const response = await api.get(`/stats/${address}`);
+      if (response.data.success) {
+        setStats(response.data.stats);
+      }
+    } catch (error) {
+      console.error('Failed to load stats:', error);
     }
   };
 
@@ -109,8 +195,77 @@ const Producer: React.FC = () => {
 
   const handleRefresh = () => {
     if (walletAddress) {
-      loadCredits(walletAddress);
-      toast.info('Refreshing credits...');
+      Promise.all([
+        loadCredits(walletAddress),
+        loadCreditRequests(walletAddress),
+        loadIncomingRequests(walletAddress),
+        loadStats(walletAddress),
+      ]);
+      toast.info('Refreshing data...');
+    }
+  };
+
+  const handleRequestTokens = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!walletAddress || !requestAmount) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    setIsRequesting(true);
+    
+    try {
+      const response = await api.post('/credit-requests', {
+        producerAddress: walletAddress,
+        amount: requestAmount,
+        state: 'Gujarat', // This should be dynamic based on user location
+      });
+      
+      if (response.data.success) {
+        toast.success('Token request submitted successfully');
+        setRequestAmount(1);
+        await loadCreditRequests(walletAddress);
+        await loadStats(walletAddress);
+      }
+    } catch (error) {
+      console.error('Failed to request tokens:', error);
+      toast.error('Failed to submit token request');
+    } finally {
+      setIsRequesting(false);
+    }
+  };
+
+  const handleSendCredits = async (requestId: string) => {
+    if (!walletAddress) return;
+    
+    try {
+      const response = await api.post(`/incoming-requests/${requestId}/accept`);
+      if (response.data.success) {
+        toast.success('Credits sent successfully');
+        await loadIncomingRequests(walletAddress);
+        await loadStats(walletAddress);
+      }
+    } catch (error) {
+      console.error('Failed to send credits:', error);
+      toast.error('Failed to send credits');
+    }
+  };
+
+  const handleRejectRequest = async (requestId: string) => {
+    if (!walletAddress) return;
+    
+    try {
+      const response = await api.post(`/incoming-requests/${requestId}/reject`, {
+        reason: 'Rejected by producer',
+      });
+      if (response.data.success) {
+        toast.success('Request rejected');
+        await loadIncomingRequests(walletAddress);
+      }
+    } catch (error) {
+      console.error('Failed to reject request:', error);
+      toast.error('Failed to reject request');
     }
   };
 
@@ -168,14 +323,14 @@ const Producer: React.FC = () => {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.1 }}
               className="card text-center"
             >
-              <h3 className="text-2xl font-bold text-brand">{credits.length}</h3>
+              <h3 className="text-2xl font-bold text-brand">{stats.totalCredits}</h3>
               <p className="text-gray-400">Total Credits</p>
             </motion.div>
             
@@ -185,7 +340,7 @@ const Producer: React.FC = () => {
               transition={{ duration: 0.6, delay: 0.2 }}
               className="card text-center"
             >
-              <h3 className="text-2xl font-bold text-green-400">{activeCredits.length}</h3>
+              <h3 className="text-2xl font-bold text-green-400">{stats.activeCredits}</h3>
               <p className="text-gray-400">Active Credits</p>
             </motion.div>
             
@@ -195,12 +350,75 @@ const Producer: React.FC = () => {
               transition={{ duration: 0.6, delay: 0.3 }}
               className="card text-center"
             >
-              <h3 className="text-2xl font-bold text-gray-400">{retiredCredits.length}</h3>
-              <p className="text-gray-400">Retired Credits</p>
+              <h3 className="text-2xl font-bold text-yellow-400">{stats.pendingRequests}</h3>
+              <p className="text-gray-400">Pending Requests</p>
+            </motion.div>
+            
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.4 }}
+              className="card text-center"
+            >
+              <h3 className="text-2xl font-bold text-blue-400">{stats.approvedRequests}</h3>
+              <p className="text-gray-400">Approved Requests</p>
             </motion.div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Request Tokens Section */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            className="card mb-8"
+          >
+            <h2 className="text-xl font-semibold mb-6 flex items-center">
+              <Plus className="h-5 w-5 mr-2 text-brand" />
+              Request Tokens
+            </h2>
+            
+            <form onSubmit={handleRequestTokens} className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Number of Tokens
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="1000"
+                  value={requestAmount}
+                  onChange={(e) => setRequestAmount(Number(e.target.value))}
+                  className="input w-full"
+                  required
+                />
+                <p className="text-sm text-gray-400 mt-1">1-1000</p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isRequesting}
+                className="btn-primary w-full flex items-center justify-center space-x-2"
+              >
+                {isRequesting ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    <span>Submitting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4" />
+                    <span>Request Tokens</span>
+                  </>
+                )}
+              </button>
+            </form>
+            
+            <p className="text-sm text-gray-400 mt-4 text-center">
+              Request will be sent to State Admin of Gujarat
+            </p>
+          </motion.div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
             {/* Transfer Form */}
             <motion.div
               initial={{ opacity: 0, x: -20 }}
@@ -319,6 +537,148 @@ const Producer: React.FC = () => {
               </div>
             </motion.div>
           </div>
+
+          {/* Token Requests Section */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.7 }}
+            className="card mb-8"
+          >
+            <h2 className="text-xl font-semibold mb-6">Token Requests</h2>
+            
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {creditRequests.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">
+                  No token requests found
+                </p>
+              ) : (
+                creditRequests.map((request) => (
+                  <div
+                    key={request.id}
+                    className={`p-4 rounded-xl border transition-all ${
+                      request.status === 'approved'
+                        ? 'bg-green-900/20 border-green-600'
+                        : request.status === 'rejected'
+                        ? 'bg-red-900/20 border-red-600'
+                        : 'bg-yellow-900/20 border-yellow-600'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-semibold">
+                          Request #{request.id.slice(-8)}
+                        </p>
+                        <p className="text-sm text-gray-400">
+                          {request.amount} tokens requested
+                        </p>
+                        <p className="text-sm text-gray-400">
+                          State: {request.state}
+                        </p>
+                        <p className="text-sm text-gray-400">
+                          Created: {new Date(request.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      
+                      <div className="text-right">
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          request.status === 'approved'
+                            ? 'bg-green-500/20 text-green-400'
+                            : request.status === 'rejected'
+                            ? 'bg-red-500/20 text-red-400'
+                            : 'bg-yellow-500/20 text-yellow-400'
+                        }`}>
+                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                        </span>
+                        {request.approvedAt && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            {new Date(request.approvedAt).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
+
+          {/* Incoming Credit Requests Section */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.8 }}
+            className="card mb-8"
+          >
+            <h2 className="text-xl font-semibold mb-6">Incoming Credit Requests</h2>
+            
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {incomingRequests.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">
+                  No incoming requests found
+                </p>
+              ) : (
+                incomingRequests.map((request) => (
+                  <div
+                    key={request.id}
+                    className={`p-4 rounded-xl border transition-all ${
+                      request.status === 'accepted'
+                        ? 'bg-green-900/20 border-green-600'
+                        : request.status === 'rejected'
+                        ? 'bg-red-900/20 border-red-600'
+                        : 'bg-blue-900/20 border-blue-600'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-semibold">
+                          Request #{request.id.slice(-8)}
+                        </p>
+                        <p className="text-sm text-gray-400">
+                          From: {request.fromAddress.slice(0, 6)}...{request.fromAddress.slice(-4)}
+                        </p>
+                        <p className="text-sm text-gray-400">
+                          Credits Requested: {request.amount}
+                        </p>
+                        <p className="text-sm text-gray-400">
+                          Created: {new Date(request.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      
+                      <div className="text-right">
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          request.status === 'accepted'
+                            ? 'bg-green-500/20 text-green-400'
+                            : request.status === 'rejected'
+                            ? 'bg-red-500/20 text-red-400'
+                            : 'bg-blue-500/20 text-blue-400'
+                        }`}>
+                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                        </span>
+                        
+                        {request.status === 'pending' && (
+                          <div className="flex space-x-2 mt-2">
+                            <button
+                              onClick={() => handleSendCredits(request.id)}
+                              className="btn-primary text-xs px-3 py-1"
+                            >
+                              Send Credits
+                            </button>
+                            <button
+                              onClick={() => handleRejectRequest(request.id)}
+                              className="btn-secondary text-xs px-3 py-1"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
         </motion.div>
       </div>
     </div>

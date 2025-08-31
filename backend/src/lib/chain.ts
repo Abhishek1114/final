@@ -24,14 +24,15 @@ export async function getProvider() {
 export async function getContract() {
   if (!contract && config.contractAddress) {
     const providerInstance = await getProvider();
-    if (providerInstance) {
-      console.log('📋 Creating contract instance for:', config.contractAddress);
-      contract = new ethers.Contract(
-        config.contractAddress,
-        HydroCredTokenABI,
-        providerInstance
-      );
+    if (!providerInstance) {
+      throw new Error('Provider not initialized');
     }
+    console.log('📋 Creating contract instance for:', config.contractAddress);
+    contract = new ethers.Contract(
+      config.contractAddress,
+      HydroCredTokenABI,
+      providerInstance
+    );
   }
   return contract;
 }
@@ -159,4 +160,18 @@ export async function isTokenRetired(tokenId: number): Promise<boolean> {
   }
   
   return await contractInstance.isRetired(tokenId);
+}
+
+export async function getOwnedTokens(address: string): Promise<number[]> {
+  const contractInstance = await getContract();
+  if (!contractInstance) {
+    throw new Error('Contract not initialized');
+  }
+  
+  try {
+    return await contractInstance.tokensOfOwner(address);
+  } catch (error) {
+    console.warn(`Failed to get tokens for address ${address}:`, error);
+    return [];
+  }
 }

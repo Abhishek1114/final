@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import path from 'path';
 import { config, validateConfig } from './config/env';
 import apiRoutes from './routes/api';
+import { initializeDatabase } from './lib/init-db';
 
 const app = express();
 
@@ -66,7 +67,7 @@ app.use('*', (req, res) => {
 
 const PORT = config.port;
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🚀 HydroCred Backend running on port ${PORT}`);
   console.log(`📡 Environment: ${config.nodeEnv}`);
   
@@ -75,6 +76,13 @@ app.listen(PORT, () => {
     console.log('✅ Configuration validated');
   } else {
     console.log('⚠️  Configuration incomplete - some features may not work');
+  }
+  
+  // Initialize database with sample data
+  try {
+    await initializeDatabase();
+  } catch (error) {
+    console.error('❌ Failed to initialize database:', error);
   }
   
   console.log(`🌐 API available at http://localhost:${PORT}`);

@@ -3,8 +3,9 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { z } from 'zod';
-import { getCreditEvents } from '../lib/chain';
+import { getCreditEvents, getOwnedTokens, isTokenRetired } from '../lib/chain';
 import { encrypt, hash } from '../lib/crypto';
+import { db, ProducerSchema, CreditRequestSchema, IncomingRequestSchema } from '../lib/database';
 
 const router = Router();
 
@@ -129,6 +130,177 @@ router.get('/token/:tokenId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Token fetch error:', error);
     res.status(400).json({ error: 'Invalid token ID' });
+  }
+});
+
+// Producer management endpoints
+router.post('/producers', async (req: Request, res: Response) => {
+  try {
+    const producerData = ProducerSchema.parse(req.body);
+    const producer = await db.addProducer(producerData);
+    res.json({ success: true, producer });
+  } catch (error) {
+    console.error('Producer creation error:', error);
+    res.status(400).json({ error: 'Invalid producer data' });
+  }
+});
+
+router.get('/producers', async (req: Request, res: Response) => {
+  try {
+    const { verified } = req.query;
+    const producers = verified === 'true' 
+      ? await db.getVerifiedProducers()
+      : await db.getAllProducers();
+    res.json({ success: true, producers });
+  } catch (error) {
+    console.error('Producer fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch producers' });
+  }
+});
+
+router.post('/producers/:address/verify', async (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+    const { verifiedBy } = req.body;
+    const producer = await db.verifyProducer(address, verifiedBy);
+    res.json({ success: true, producer });
+  } catch (error) {
+    console.error('Producer verification error:', error);
+    res.status(400).json({ error: 'Failed to verify producer' });
+  }
+});
+
+// Credit request endpoints
+router.post('/credit-requests', async (req: Request, res: Response) => {
+  try {
+    const requestData = CreditRequestSchema.parse(req.body);
+    const request = await db.createCreditRequest(requestData);
+    res.json({ success: true, request });
+  } catch (error) {
+    console.error('Credit request creation error:', error);
+    res.status(400).json({ error: 'Invalid request data' });
+  }
+});
+
+router.get('/credit-requests', async (req: Request, res: Response) => {
+  try {
+    const { producerAddress } = req.query;
+    const requests = await db.getCreditRequests(producerAddress as string);
+    res.json({ success: true, requests });
+  } catch (error) {
+    console.error('Credit request fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch credit requests' });
+  }
+});
+
+router.post('/credit-requests/:id/approve', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { approvedBy } = req.body;
+    const request = await db.approveCreditRequest(id, approvedBy);
+    res.json({ success: true, request });
+  } catch (error) {
+    console.error('Credit request approval error:', error);
+    res.status(400).json({ error: 'Failed to approve request' });
+  }
+});
+
+router.post('/credit-requests/:id/reject', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { rejectedBy, reason } = req.body;
+    const request = await db.rejectCreditRequest(id, rejectedBy, reason);
+    res.json({ success: true, request });
+  } catch (error) {
+    console.error('Credit request rejection error:', error);
+    res.status(400).json({ error: 'Failed to reject request' });
+  }
+});
+
+// Incoming request endpoints
+router.post('/incoming-requests', async (req: Request, res: Response) => {
+  try {
+    const requestData = IncomingRequestSchema.parse(req.body);
+    const request = await db.createIncomingRequest(requestData);
+    res.json({ success: true, request });
+  } catch (error) {
+    console.error('Incoming request creation error:', error);
+    res.status(400).json({ error: 'Invalid request data' });
+  }
+});
+
+router.get('/incoming-requests/:address', async (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+    const requests = await db.getIncomingRequests(address);
+    res.json({ success: true, requests });
+  } catch (error) {
+    console.error('Incoming request fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch incoming requests' });
+  }
+});
+
+router.post('/incoming-requests/:id/accept', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const request = await db.acceptIncomingRequest(id);
+    res.json({ success: true, request });
+  } catch (error) {
+    console.error('Incoming request acceptance error:', error);
+    res.status(400).json({ error: 'Failed to accept request' });
+  }
+});
+
+router.post('/incoming-requests/:id/reject', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const request = await db.rejectIncomingRequest(id, reason);
+    res.json({ success: true, request });
+  } catch (error) {
+    console.error('Incoming request rejection error:', error);
+    res.status(400).json({ error: 'Failed to reject request' });
+  }
+});
+
+// Stats endpoint
+router.get('/stats/:address', async (req: Request, res: Response) => {
+  try {
+    const { address } = req.params;
+    
+    // Get database stats
+    const dbStats = await db.getStats(address);
+    
+    // Get blockchain stats
+    let totalCredits = 0;
+    let activeCredits = 0;
+    
+    try {
+      const tokenIds = await getOwnedTokens(address);
+      totalCredits = tokenIds.length;
+      
+      const creditsWithStatus = await Promise.all(
+        tokenIds.map(async (tokenId) => ({
+          tokenId,
+          isRetired: await isTokenRetired(tokenId),
+        }))
+      );
+      
+      activeCredits = creditsWithStatus.filter(c => !c.isRetired).length;
+    } catch (error) {
+      console.warn('Failed to fetch blockchain stats:', error);
+    }
+    
+    const stats = {
+      ...dbStats,
+      totalCredits,
+      activeCredits,
+    };
+    
+    res.json({ success: true, stats });
+  } catch (error) {
+    console.error('Stats fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
 
